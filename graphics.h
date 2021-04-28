@@ -14,7 +14,7 @@
 #include <GL/glut.h>
 #endif
 
-enum screenLetter { w, p, b, e };
+enum screenLetter { w, p, e };
 
 // Program initialization NOT OpenGL/GLUT dependent,
 // as we haven't created a GLUT window yet

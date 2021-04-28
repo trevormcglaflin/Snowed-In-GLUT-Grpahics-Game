@@ -12,20 +12,15 @@ using namespace std;
 
 
 GLdouble width, height;
-int wd, ballSize;
-vector<Circle> balls;
-Rect user;
-point2D userCenter;
-dimensions userDimensions;
-int userHeight;
-int userWidth;
-bool ballMovesRight;
-int points;
-int level;
-int addedPointsPerLevel;
-int ballSpeed;
-color ballColor;
+int wd, ballSize, userHeight, userWidth, maxJumpHeight, userSnowHeight, points, blockSpeed;
+bool userUp, userDown, userDownFast;
+Rect user, userSnow;
+point2D userCenter, userSnowCenter;
+dimensions userDimensions, userSnowDimensions;
 screenLetter screen;
+vector<Rect> blocks, warmingBlocks;
+vector<Circle> snow;
+const int distanceFromEdge = 100;
 const color skyBlue(77/255.0, 213/255.0, 240/255.0);
 const color grassGreen(26/255.0, 176/255.0, 56/255.0);
 const color white(1, 1, 1);
@@ -35,55 +30,99 @@ const color purple(119/255.0, 11/255.0, 224/255.0);
 const color magenta(1, 0, 1);
 const color orange(1, 163/255.0, 22/255.0);
 const color cyan (0, 1, 1);
-vector<color> colors;
+const color neonYellow (0.85, 1.0, 0.2);
+const color pineGreen (0.4, 0.55, 0.4);
+const vector<color> colors =  { skyBlue, grassGreen, white, brickRed, darkBlue, purple, magenta, orange, cyan };
 
-
-// checks if a circle is on the screen
-bool onScreen(Circle circle) {
-    if (circle.getRightX() > 0 && circle.getLeftX() < width) {
+// checks if a rectangle is on the screen
+bool onScreen(Rect r) {
+    if (r.getRightX() > 0 && r.getLeftX() < width) {
         return true;
     }
     return false;
 }
 
-// checks if a circle has collided with a rectangle
-bool circleHitRect(Circle &c, Rect &r) {
-    if (c.getTopY() <= r.getBottomY() && c.getBottomY() >= r.getTopY() && c.getRightX() >= r.getLeftX()) {
-        return true;
+void initUser() {
+    // set initial user attributes
+    userHeight = 30;
+    userWidth = 30;
+    userCenter.x = int(distanceFromEdge);
+    userCenter.y = int(height - (userHeight/2));
+    userDimensions.width = userWidth;
+    userDimensions.height = userHeight;
+    user = Rect(orange, userCenter, userDimensions);
+
+    // initialize userSnow attributes
+    userSnowHeight = 1;
+    userSnowCenter.x = userCenter.x;
+    userSnowCenter.y = int(height - userHeight - (userSnowHeight/2));
+    userSnowDimensions.width = userWidth;
+    userSnowDimensions.height = userSnowHeight;
+    userSnow = Rect(white, userSnowCenter, userSnowDimensions);
+
+    // will be used to make user jump
+    userUp = false;
+    userDown = false;
+    userDownFast = false;
+    maxJumpHeight = 200;
+}
+
+void initBlocks() {
+    int blockWidth = 20;
+    int blockCount = 0;
+    dimensions blockSize;
+    while (blockCount < 50) {
+        blockSize.height = 10 + blockCount;
+        blockSize.width = blockWidth;
+        blocks.push_back(Rect(pineGreen,
+                              width + blockWidth,
+                              height - ((blockSize.height / 2)),
+                              blockSize));
+        blockCount++;
     }
-    return false;
+    // controls speed of blocks
+    blockSpeed = 10;
+}
+
+void initWarmingBlocks() {
+    int blockCount = 0;
+    dimensions blockSize;
+    int blockY = maxJumpHeight;
+    color blockColor = magenta;
+    while (blockY > 10) {
+        if (rand() % 12 == 3) {
+            blockColor = neonYellow;
+        }
+        else {
+            blockColor = magenta;
+        }
+        blockSize.height = 8;
+        blockSize.width = 8;
+        warmingBlocks.push_back(Rect(blockColor,
+                                     width + 8,
+                                     height - blockY,
+                                     blockSize));
+        blockY -= 10;
+    }
+}
+
+void initSnow() {
+    for (int i = 0; i < 150; ++i) {
+        snow.push_back(Circle(1, 1, 1, 1, rand() % int(width), -(rand() % int(height)), rand() % 5 + 1));
+    }
 }
 
 
 void init() {
     srand(time(0));
-    width = 800;
-    height = 800;
-    ballSize = 20;
+    width = 700;
+    height = 700;
 
-    // set initial user attributes
-    userHeight = 400;
-    userWidth = 30;
-    userCenter.x = int(width - (userWidth/2));
-    userCenter.y = int(height/2);
-    userDimensions.width = userWidth;
-    userDimensions.height = userHeight;
-    user = Rect(cyan, userCenter, userDimensions);
+    initUser();
+    initBlocks();
+    initWarmingBlocks();
+    initSnow();
 
-    // make some balls at different heights
-    for (int i = 0; i < 100; ++i) {
-        balls.push_back(Circle(1, 0, 0, 1, -ballSize, (rand() % int(height - ballSize) + ballSize), ballSize));
-    }
-
-    // populate colors vector
-    colors = { skyBlue, grassGreen, white, brickRed, darkBlue, purple, magenta, orange, cyan };
-
-    // for game play
-    ballMovesRight = true;
-    points = 0;
-    level = 1;
-    addedPointsPerLevel = 5;
-    ballSpeed = ballSize * (1 + (level * 0.2));
     screen = w;
 }
 
@@ -110,38 +149,76 @@ void display() {
 
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL); // DO NOT CHANGE THIS LINE
 
+
     if (screen == w) {
         glColor3f(1, 1, 1);
         glRasterPos2i(200, 200);
-        string message = "Welcome, hit 'p' to play rectangle goalie!!";
+        string message = "Brrrrr, hit 'p' to play snowed in!!";
         for (const char &letter: message) {
             glutBitmapCharacter(GLUT_BITMAP_8_BY_13, letter);
         }
     }
     else if (screen == p) {
-        user.draw();
 
-        for (Circle &ball : balls) {
-            ball.draw();
+        for (Circle &flake : snow) {
+            flake.draw();
         }
-    }
-    else if (screen == b) {
-        glColor3f(1, 1, 1);
-        glRasterPos2i(200, 200);
-        string message = "You passed level" + to_string(level) + "! Hit spacebar to go to start next level.";
-        for (const char &letter: message) {
+
+        user.draw();
+        userSnow.draw();
+
+        for (Rect &r : blocks) {
+            r.draw();
+        }
+
+        for (Rect &w : warmingBlocks) {
+            w.draw();
+            cout << w.getRightX() << endl;
+            cout << w.getRed() << endl;
+        }
+
+        string pointTracker = to_string(points) + " points";
+        glColor3f(1, 0, 1);
+        glRasterPos2i(width - 75, 20);
+        for (const char &letter: pointTracker) {
             glutBitmapCharacter(GLUT_BITMAP_8_BY_13, letter);
         }
+
     }
     else {
-        glColor3f(1, 1, 1);
+        glColor3f(1, 0, 1);
         glRasterPos2i(200, 200);
-        string message = "Game over! You made it to level " + to_string(level) + "! Hit 'p' to play again!";
+        string finalScore = "Score: " + to_string(points);
+        for (const char &letter: finalScore) {
+            glutBitmapCharacter(GLUT_BITMAP_8_BY_13, letter);
+        }
+        glRasterPos2i(200, 250);
+        string message = "Hit 'p' to play again!!";
         for (const char &letter: message) {
             glutBitmapCharacter(GLUT_BITMAP_8_BY_13, letter);
         }
+
+        // reset game
+        user = Rect(orange, userCenter, userDimensions);
+        userSnow.setHeight(userSnowHeight);
+        userSnow.setCenterY(height - user.getHeight() - (height - user.getBottomY()) - (userSnowHeight/2));
+        userUp = false;
+        userDown = false;
+        userDownFast = false;
+
+        for (Circle &flake : snow) {
+            flake.setCenter(rand() % int(width), -(rand() % int(height)));
+        }
+        for (Rect &r : blocks) {
+            r.setCenterX(width + 20);
+        }
+        for (Rect &w : warmingBlocks) {
+            w.setCenterX(width + 8);
+        }
+
     }
-    glFlush();  // Render now
+
+    glFlush();
 }
 
 
@@ -156,44 +233,12 @@ void kbd(unsigned char key, int x, int y) {
         // p: user can hit it whenever to start over
         case 112: {
             points = 0;
-            level = 1;
-            ballSpeed = ballSize * (1 + (level * 0.2));
-
-            // reposition balls
-            for (Circle &ball : balls) {
-                if (onScreen(ball) || ball.getRightX() > width) {
-                    ball.setCenter(-ballSize, rand() % int(height));
-                }
-            }
-            // reposition user to center and reset size
-            user.setCenter(userCenter);
-            user.setHeight(userHeight);
             screen = p;
         }
     }
 
-    // only allow spacebar to be hit spacebar if you are between turns
-    if (screen == b && key == 32) {
-        points = 0;
-        level++;
-
-        // update balls
-        ballSpeed = ballSize * (1 + (level * 0.2));
-        ballColor = colors[rand() % colors.size() - 1];
-        for (Circle &ball : balls) {
-            ball.setColor(ballColor);
-            if (onScreen(ball) || ball.getRightX() > width) {
-                ball.setCenter(-ballSize, rand() % int(height));
-            }
-        }
-
-        // update user
-        if (user.getHeight() > ballSize * 2) {
-            user.changeHeight(-(userHeight/10));
-        }
-        user.setCenter(userCenter);
-        user.setColor(colors[rand() % colors.size() - 1]);
-        screen = p;
+    if (!(userUp) && !(userDown) && key == 32) {
+        userUp = true;
     }
 
     glutPostRedisplay();
@@ -205,24 +250,12 @@ void kbdUp(unsigned char key, int x, int y) {
 }
 
 void kbdS(int key, int x, int y) {
-    switch(key) {
-        case GLUT_KEY_DOWN:
-            if (user.getBottomY() + 30 <= height) {
-                user.move(0, 30);
-            }
-            else {
-                user.move(0, height - user.getBottomY());
-            }
-            break;
-
-        case GLUT_KEY_UP:
-            if (user.getTopY() - 30 >= 0) {
-                user.move(0, -30);
-            }
-            else {
-                user.move(0, -(user.getTopY()));
-            }
-            break;
+    if (key = GLUT_KEY_DOWN) {
+        if (userUp) {
+            userUp = false;
+            userDown = true;
+        }
+        userDownFast = true;
     }
 
     glutPostRedisplay();
@@ -233,63 +266,130 @@ void cursor(int x, int y) {
     glutPostRedisplay();
 }
 
-// button will be GLUT_LEFT_BUTTON or GLUT_RIGHT_BUTTON
-// state will be GLUT_UP or GLUT_DOWN
 void mouse(int button, int state, int x, int y) {
-    // D3: What does this code do? What will it look like? Where will it be?
      string message = "You clicked the mouse at coordinate (" + to_string(x) + ", " + to_string(y) + ")";
      glColor3f(1, 1, 1);
      glRasterPos2i(0, height);
      for (char letter : message) {
          glutBitmapCharacter(GLUT_BITMAP_TIMES_ROMAN_24, letter);
      }
-
-
      glutPostRedisplay();
 }
 
-void timer(int dummy) {
-    // only do this if screen is in playing mode
+void blockTimer(int dummy) {
     if (screen == p) {
-        // check if there is a ball already on screen, if so then move that one
-        bool ballOnScreen = false;
-        for (Circle &ball : balls) {
-            if (onScreen(ball)) {
-                // move it left if it has already collided with user
-                if (ballMovesRight) {
-                    ball.moveX(ballSpeed);
-                } else {
-                    ball.moveX(-ballSpeed);
-                }
+        bool found = false;
+        for (Rect &r : blocks) {
+            if (onScreen(r)) {
+                r.moveX(-blockSpeed - (1 + points/10));
+                found = true;
 
-                // if it collides with user, change direction and add point
-                if (circleHitRect(ball, user)) {
-                    ballMovesRight = false;
+                if (r.getRightX() <= 0) {
                     points++;
-
-                    // if points reach end of level change to between level screen
-                    if (points >= (level * addedPointsPerLevel)) {
-                        screen = b;
-                    }
+                    r.setCenterX(width + 20);
+                    userSnow.setHeight(userSnow.getHeight() + 2);
+                    userSnow.setCenterY(userSnow.getCenterY() - 1);
                 }
-
-                if (ball.getRightX() > width) {
-                    ball.setCenter(-ballSize, rand() % int(height));
-                    screen = e;
+            }
+            if (user.isOverlapping(r)) {
+                for (Rect &rect : blocks) {
+                    rect.setCenterX(width + 20);
                 }
-                ballOnScreen = true;
+                screen = e;
             }
         }
 
-        // if there is not a ball on the screen, move a ball in the balls vector at a random index
-        if (!(ballOnScreen)) {
-            ballMovesRight = true;
-            balls[rand() % int(balls.size())].moveX(ballSize);
+        if (!(found)) {
+            blocks[rand() % blocks.size()].moveX(-blockSpeed);
         }
     }
 
     glutPostRedisplay();
-    glutTimerFunc(50, timer, dummy);
+    glutTimerFunc(30, blockTimer, dummy);
+}
+
+void warmingBlockTimer(int dummy) {
+    if (screen == p) {
+        bool found = false;
+        for (Rect &w : warmingBlocks) {
+            if (onScreen(w)) {
+                w.moveX(-blockSpeed * 2);
+                found = true;
+            }
+
+            if (w.getRightX() < 0) {
+                w.setCenterX(width + 8);
+                w.setCenterY(height - (rand() % maxJumpHeight + 10));
+            }
+
+            // if user hits a warming block, it will melt some snow off of them so they can jump higher
+            if (user.isOverlapping(w)) {
+                w.setCenterX(width + 8);
+                if (w.getRed() == 1) {
+                    userSnow.setHeight(userSnow.getHeight() - 2);
+                    userSnow.setCenterY(userSnow.getCenterY() + 1);
+                }
+                else {
+                    userSnow.setHeight(userSnowHeight);
+                    userSnow.setCenterY(height - user.getHeight() - (height - user.getBottomY()) - (userSnowHeight/2));
+                }
+            }
+        }
+
+        if (!(found)) {
+            warmingBlocks[rand() % warmingBlocks.size()].moveX(-blockSpeed * 2);
+        }
+    }
+    glutPostRedisplay();
+    glutTimerFunc(30, warmingBlockTimer, dummy);
+}
+
+void snowTimer(int dummy) {
+
+    for (Circle &flake : snow) {
+        flake.moveY( flake.getRadius() * 0.25 * ((points + 2)/5));
+
+        if (flake.getTopY() > height) {
+            flake.setCenter(rand() % int(width), -flake.getRadius());
+        }
+    }
+    glutPostRedisplay();
+    glutTimerFunc(30, snowTimer, dummy);
+}
+
+void userTimer(int dummy) {
+    // does jumping
+    if (userDown) {
+        if (userDownFast && (height - user.getBottomY()) >= 60) {
+            user.moveY(60);
+            userSnow.moveY(60);
+        }
+        else if ((height - user.getBottomY()) >= 20) {
+            user.moveY(20);
+            userSnow.moveY(20);
+        }
+        else {
+            user.moveY((height - user.getBottomY()));
+            userSnow.moveY((height - user.getBottomY()));
+            userDown = false;
+            userDownFast = false;
+        }
+    }
+    if (userUp) {
+        // the more snow on the user, the lower it can jump
+        if (user.getCenterY() >= (height - maxJumpHeight + (userSnow.getHeight() * 2))) {
+            user.moveY(-20);
+            userSnow.moveY(-20);
+            userDownFast = false;
+        }
+        else {
+            userUp = false;
+            userDown = true;
+        }
+    }
+
+    glutPostRedisplay();
+    glutTimerFunc(50, userTimer, dummy);
 }
 
 /* Main function: GLUT runs as a console application starting at main()  */
@@ -304,7 +404,7 @@ int main(int argc, char** argv) {
     glutInitWindowSize((int)width, (int)height);
     glutInitWindowPosition(0, 0); // Position the window's initial top-left corner
     /* create the window and store the handle to it */
-    wd = glutCreateWindow("Rectangle Goalie!" /* title */ );
+    wd = glutCreateWindow("Snowed in!");
 
     // Register callback handler for window re-paint event
     glutDisplayFunc(display);
@@ -327,7 +427,11 @@ int main(int argc, char** argv) {
     glutMouseFunc(mouse);
 
     // handles timer
-    glutTimerFunc(0, timer, 0);
+    glutTimerFunc(0, userTimer, 0);
+    glutTimerFunc(0 , blockTimer, 0);
+    glutTimerFunc(0, warmingBlockTimer, 0);
+    glutTimerFunc(0, snowTimer, 0);
+
     // Enter the event-processing loop
     glutMainLoop();
     return 0;
