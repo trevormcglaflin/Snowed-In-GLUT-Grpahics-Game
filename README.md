@@ -1,4 +1,5 @@
 Link to demo: https://web.microsoftstream.com/video/63c2fa1a-acc4-4030-97fa-f0faa947e1f9?list=user&userId=cf4daec7-44f9-4007-822f-734761d3c567
+if you can't access, email me trevor.mcglaflin@uvm.edu
 
 Welcome to Snowed In!
 
